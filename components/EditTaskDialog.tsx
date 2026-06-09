@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useActionState, useEffect } from "react"
+import { useState, useActionState, useEffect, useMemo } from "react"
 import { toast } from "sonner"
 import { Paperclip, X, File } from "lucide-react"
 
@@ -29,7 +29,10 @@ export default function EditTaskDialog({
   onOpenChange: (open: boolean) => void
   onTaskUpdated?: () => void
 }) {
-  const initialAttachments = (task.attachments as { fileName: string; fileUrl: string }[]) ?? []
+  const initialAttachments = useMemo(
+    () => (task.attachments as { fileName: string; fileUrl: string }[]) ?? [],
+    [task.attachments]
+  )
   const [content, setContent] = useState(task.description ?? "")
   const [attachments, setAttachments] = useState(initialAttachments)
   const [uploading, setUploading] = useState(false)
@@ -37,10 +40,12 @@ export default function EditTaskDialog({
 
   useEffect(() => {
     if (open) {
+      /* eslint-disable react-hooks/set-state-in-effect */
       setContent(task.description ?? "")
       setAttachments(initialAttachments)
+      /* eslint-enable react-hooks/set-state-in-effect */
     }
-  }, [open, task.description])
+  }, [open, task.description, initialAttachments])
 
   useEffect(() => {
     if (state?.success) {

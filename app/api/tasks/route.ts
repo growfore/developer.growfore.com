@@ -49,6 +49,9 @@ export async function POST(request: NextRequest) {
   const title = extractTitleFromHtml(content)
   const links = extractLinksFromHtml(content)
 
+  const session = await auth()
+  const anonSession = request.cookies.get("anon_session")?.value
+
   const task = await prisma.task.create({
     data: {
       title,
@@ -56,6 +59,7 @@ export async function POST(request: NextRequest) {
       links,
       attachments: Array.isArray(attachments) ? attachments : [],
       status: "TODO",
+      createdBySession: session ? null : anonSession,
     },
   })
 
@@ -63,17 +67,26 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const session = await auth()
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
-
   const body = await request.json()
   const { ids } = body
   if (!Array.isArray(ids) || ids.length === 0) {
     return NextResponse.json({ error: "ids required" }, { status: 400 })
   }
 
-  await prisma.task.deleteMany({ where: { id: { in: ids } } })
-  return NextResponse.json({ deleted: ids.length })
+  const session = await auth()
+  const anonSession = request.cookies.get("anon_session")?.value
+
+  if (session) {
+    const result = await prisma.task.deleteMany({ where: { id: { in: ids } } })
+    return NextResponse.json({ deleted: result.count })
+  }
+
+  if (anonSession) {
+    const result = await prisma.task.deleteMany({
+      where: { id: { in: ids }, createdBySession: anonSession },
+    })
+    return NextResponse.json({ deleted: result.count })
+  }
+
+  return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 }

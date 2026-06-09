@@ -6,11 +6,6 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await auth()
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
-
   const { id } = await params
   const body = await request.json()
   const { status } = body
@@ -19,10 +14,27 @@ export async function PATCH(
     return NextResponse.json({ error: "Invalid status" }, { status: 400 })
   }
 
-  const task = await prisma.task.update({
-    where: { id },
-    data: { status },
-  })
+  const session = await auth()
+  const anonSession = request.cookies.get("anon_session")?.value
 
-  return NextResponse.json(task)
+  if (session) {
+    const task = await prisma.task.update({
+      where: { id },
+      data: { status },
+    })
+    return NextResponse.json(task)
+  }
+
+  if (anonSession) {
+    const existing = await prisma.task.findUnique({ where: { id } })
+    if (existing && existing.createdBySession === anonSession) {
+      const task = await prisma.task.update({
+        where: { id },
+        data: { status },
+      })
+      return NextResponse.json(task)
+    }
+  }
+
+  return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 }

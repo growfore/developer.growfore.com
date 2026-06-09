@@ -8,6 +8,12 @@ import { Button } from "@/components/ui/button"
 import KanbanColumn from "./KanbanColumn"
 import type { Task, TaskStatus } from "@/lib/types"
 
+function getAnonSession(): string | null {
+  if (typeof document === "undefined") return null
+  const match = document.cookie.match(/(?:^|;\s*)anon_session=([^;]*)/)
+  return match ? decodeURIComponent(match[1]) : null
+}
+
 const COLUMNS = [
   { key: "BACKLOG" as TaskStatus, label: "Backlog" },
   { key: "TODO" as TaskStatus, label: "To Do" },
@@ -39,12 +45,15 @@ export default function KanbanBoard({
   const clearSelection = useCallback(() => setSelectedIds(new Set()), [])
 
   async function handleMoveTask(taskId: string, newStatus: TaskStatus) {
-    if (!session) {
+    const prevTask = tasks.find((t) => t.id === taskId)
+    if (!prevTask) return
+
+    const anonSession = getAnonSession()
+    const canMove = session || (!!anonSession && anonSession === prevTask.createdBySession)
+    if (!canMove) {
       toast.error("Sign in to move tasks")
       return
     }
-
-    const prevTask = tasks.find((t) => t.id === taskId)
 
     setTasks((prev) =>
       prev.map((t) =>
@@ -58,20 +67,20 @@ export default function KanbanBoard({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus }),
       })
-      if (!res.ok && prevTask) {
+      if (!res.ok) {
         setTasks((prev) =>
           prev.map((t) => (t.id === taskId ? prevTask : t))
         )
         if (res.status === 401) {
           toast.error("Session expired \u2014 sign in again")
+        } else {
+          toast.error("Failed to move task")
         }
       }
     } catch {
-      if (prevTask) {
-        setTasks((prev) =>
-          prev.map((t) => (t.id === taskId ? prevTask : t))
-        )
-      }
+      setTasks((prev) =>
+        prev.map((t) => (t.id === taskId ? prevTask : t))
+      )
       toast.error("Failed to move task")
     }
   }
@@ -92,11 +101,20 @@ export default function KanbanBoard({
         body: JSON.stringify({ ids }),
       })
       if (res.ok) {
+        const data = await res.json()
+        const deletedCount = data.deleted ?? ids.length
         setTasks((prev) => prev.filter((t) => !selectedIds.has(t.id)))
         clearSelection()
-        toast.success(`Deleted ${ids.length} task${ids.length === 1 ? "" : "s"}`)
+        if (deletedCount === 0) {
+          toast.error("No tasks were deleted")
+        } else {
+          toast.success(`Deleted ${deletedCount} task${deletedCount === 1 ? "" : "s"}`)
+        }
       } else if (res.status === 401) {
         toast.error("Session expired \u2014 sign in again")
+      } else {
+        const data = await res.json().catch(() => ({}))
+        toast.error(data.error || "Failed to delete tasks")
       }
     } catch {
       toast.error("Failed to delete tasks")
